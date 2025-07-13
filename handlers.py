@@ -604,7 +604,7 @@ async def handle_general_resume(message: Message, state: FSMContext):
         analysis_result = await generating_answer_without_vacancy(extracted_text)  
         formatted_result = clean_and_format(analysis_result)
 
-        
+        logger.info(f"Пользователь {message.from_user.id} получил анализ {formatted_result}")
         
         await message.answer(formatted_result, parse_mode="HTML")
         await message.answer(
