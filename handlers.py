@@ -1413,7 +1413,7 @@ async def load_vacancies_for_analysis(vacancy_category):
         
         # 1. Загрузка вакансий
         records = await conn.fetch(
-            f"SELECT title, salary, skills, location, experience, link FROM vacans WHERE new_category like '%{vacancy_category}' and date >= CURRENT_DATE - INTERVAL '2 day'"
+            f"SELECT title, salary, skills, location, experience, link FROM vacans WHERE new_category like '%{vacancy_category}' and date >= CURRENT_DATE - INTERVAL '3 day'"
         )
         logger.info(f"[{datetime.now()}] Скачали последние вакансии для анализа в функции Прожарки резюме") 
         return records
