@@ -1,7 +1,6 @@
 from openai import OpenAI
 from PyPDF2 import PdfReader
 import io
-import psycopg2
 import asyncpg
 from typing import List
 import asyncio
