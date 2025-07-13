@@ -1473,6 +1473,7 @@ async def hot_resume(pdf_text, vacancy_category,  temp = 0.8):
         )
     )
 
+    logger.info(f"[{datetime.now()}] Полученное сообщенеие {completion.choices[0].message.content}") 
 
     return completion.choices[0].message.content
 
