@@ -958,8 +958,8 @@ async def cleanup_memory(bot: Bot):
         logger.info(f"[{datetime.now()}] Запуск очистки last_send_time, send_vacancies")
         try:
             now = datetime.now()
-            last_send_time = {k: v for k, v in last_send_time.items() if now - v < timedelta(days=2)}
-            send_vacancies = {k: v for k, v in send_vacancies.items() if now - v[-1]['date'] < timedelta(days=2)}
+            last_send_time = {k: v for k, v in last_send_time.items() if now - v < timedelta(days=3)}
+            send_vacancies = {k: v for k, v in send_vacancies.items() if now - v[-1]['date'] < timedelta(days=3)}
         except Exception as e:
             logger.info(f"[{datetime.now()}] Cleanup error: {e}")
    
@@ -1126,7 +1126,7 @@ async def load_and_cache_vacancies():
         # 1. Загрузка обычных вакансий
         records = await conn.fetch(
             "SELECT id, title, company, skills, location, experience, new_category, date, link "
-            "FROM vacans WHERE date >= CURRENT_DATE - INTERVAL '1 day' AND (is_hr != TRUE or is_hr is Null)" 
+            "FROM vacans WHERE date >= CURRENT_DATE - INTERVAL '3 day' AND (is_hr != TRUE or is_hr is Null)" 
         )
         
         # Кэшируем обычные вакансии
@@ -1148,7 +1148,7 @@ async def load_and_cache_vacancies():
         # 2. Загрузка HR-вакансий
         hr_records = await conn.fetch(
             "SELECT id, title, company, skills, location, description, date, link, contact, experience, new_category "
-            "FROM vacans WHERE date >= CURRENT_DATE - INTERVAL '1 day' AND is_hr = TRUE"
+            "FROM vacans WHERE date >= CURRENT_DATE - INTERVAL '3 day' AND is_hr = TRUE"
         )
         
         # Кэшируем HR-вакансии
