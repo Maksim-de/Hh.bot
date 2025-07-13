@@ -6,3 +6,4 @@ requests
 aioschedule
 asyncpg 
 bs4
+markdown
