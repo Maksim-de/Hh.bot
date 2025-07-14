@@ -182,7 +182,7 @@ categories_keyboard = ReplyKeyboardMarkup(keyboard=[
 expierence_keyboard = ReplyKeyboardMarkup(keyboard=[
     [KeyboardButton(text="Нет опыта"), KeyboardButton(text="От 1 года до 3 лет")],
     [KeyboardButton(text="От 3 до 6 лет"), KeyboardButton(text="Более 6 лет")],
-    [KeyboardButton(text="Назад в категории"),]
+    [KeyboardButton(text="Назад в категории"),KeyboardButton(text="Готово")]
     
 ], resize_keyboard=True)
 
@@ -347,23 +347,52 @@ async def handle_subcategories_done(message: Message, state: FSMContext):
 async def handle_experience_selection(message: Message, state: FSMContext):
     global user_expierence
     user_id = str(message.from_user.id)
-    user_expierence[user_id] = message.text
-    if message.text != "Назад в категории":
-        await state.update_data(experience=message.text)
-        await state.set_state(Form.waiting_for_cities)
-
-        logger.info(f"Пользователь {message.from_user.id} {message.from_user.username} указал свой опыт")
-        
-
-        await message.answer(
-        "🌍 Теперь выбери города для поиска:\n"
-        "Можно выбрать несколько вариантов или удаленную работу",
-        reply_markup=get_cities_keyboard(all_cities, user_id)
-    )
-    else:
-        logger.info(f"Пользователь {message.from_user.id} {message.from_user.username} вернулся к выбору категорий")
+    
+    # Инициализируем множество для пользователя, если его нет или если это строка
+    if user_id not in user_expierence or isinstance(user_expierence[user_id], str):
+        user_expierence[user_id] = set()
+    
+    if message.text == "Назад в категории":
         await state.set_state(Form.category)
         await message.answer("Возвращаемся к выбору категорий", reply_markup=categories_keyboard)
+        return
+    
+    if message.text == "Готово":
+        if not user_expierence.get(user_id):
+            await message.answer("⚠️ Ты не выбрал ни одного варианта опыта.\n\n"
+                               "Пожалуйста, выбери хотя бы один вариант или нажми «Назад в категории».")
+            return
+            
+        selected = "\n".join(user_expierence[user_id])
+        await message.answer(
+            "📋 <b>Отлично! Твой выбор опыта:</b>\n\n"
+            f"{selected}\n\n"
+            "Теперь укажи города для поиска:",
+            reply_markup=get_cities_keyboard(all_cities, user_id),
+            parse_mode="HTML"
+        )
+        await state.set_state(Form.waiting_for_cities)
+        return
+    
+    # Добавляем или удаляем опыт
+    exp = message.text
+    if exp in user_expierence[user_id]:
+        user_expierence[user_id].remove(exp)
+        action = "❌ Убрано из выбора"
+    else:
+        user_expierence[user_id].add(exp)
+        action = "✅ Добавлено к выбору"
+    
+    # Формируем текст с выбранными вариантами
+    selected = "\n".join(user_expierence.get(user_id, ["Пока ничего не выбрано"]))
+    
+    await message.answer(
+        f"{action}: <b>{exp}</b>\n\n"
+        f"<b>Твой текущий выбор:</b>\n\n{selected}\n\n"
+        "Можешь продолжить выбирать или нажать <b>«Готово»</b>",
+        reply_markup=expierence_keyboard,
+        parse_mode="HTML"
+    )
 
 # Общий обработчик для кнопки "Назад в категории"
 async def back_to_categories_common(message: Message, state: FSMContext):
@@ -1005,7 +1034,7 @@ async def save_selected_subcategories():
             for user_id, exp in exp_to_update.items():
                 await conn.execute(
                     "UPDATE users SET experience = $1 WHERE user_id = $2",
-                    str(exp),
+                    json.dumps(list(exp), ensure_ascii=False),
                     str(user_id)
                 )
         
@@ -1088,8 +1117,9 @@ async def load_selected_subcategories() -> dict:
             try:
                 if record['experience']:
                     # Декодируем JSON и преобразуем список в set
-                    # user_expierence[record['user_id']] = set(record['experience'])
-                    user_expierence[record['user_id']] = record['experience']
+                    user_expierence[record['user_id']] = set(json.loads(record['experience']))
+                    # user_expierence[record['user_id']] = set((record['experience']))
+                    # user_expierence[record['user_id']] = record['experience']
             except:
                 logger.info(f"[{datetime.now()}] Ошибка декодирования для user_id {record['user_id']}: {e}")
                 continue
@@ -1334,20 +1364,29 @@ async def send_personalized_vacancies(bot: Bot):
             user_cities = selected_cities.get(user_id, set())
             
             # Фильтруем вакансии для пользователя
+            # matched_vacancies = [
+            # v for v in fresh_vacancies.values()
+            # if (v.get('location') is not None and  # Проверяем, что location не None
+            #     v['location'] in user_cities and
+            #     any(cat in v['categories'] for cat in user_categories) and
+            #     (v.get('experience') == user_expierence.get(user_id) or v.get('experience') == 'Не указано'))
+            # ]
+
             matched_vacancies = [
-            v for v in fresh_vacancies.values()
-            if (v.get('location') is not None and  # Проверяем, что location не None
+                v for v in fresh_vacancies.values()
+                if (v.get('location') is not None and
                 v['location'] in user_cities and
                 any(cat in v['categories'] for cat in user_categories) and
-                (v.get('experience') == user_expierence.get(user_id) or v.get('experience') == 'Не указано'))
-            ]
+                (v.get('experience') in user_expierence.get(user_id, set()) or 
+                v.get('experience') == 'Не указано'))
+                ]
 
             matched_hr_vacancies = [
                 v for v in fresh_hr_vacancies.values()
                 if (v.get('location') is not None and  
                 v['location'] in user_cities and
                 any(cat in v['categories'] for cat in user_categories) and
-                (v.get('experience') == user_expierence.get(user_id) or v.get('experience') == 'Не указано'))
+                (v.get('experience') or user_expierence.get(user_id, set()) or v.get('experience') == 'Не указано'))
             ]
             
 
@@ -1477,5 +1516,3 @@ async def hot_resume(pdf_text, vacancy_category,  temp = 0.8):
     logger.info(f"[{datetime.now()}] Полученная генерация {text}") 
 
     return text
-
-
