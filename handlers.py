@@ -331,7 +331,7 @@ async def handle_subcategories_done(message: Message, state: FSMContext):
         "📋 <b>Отлично! Твой выбор:</b>\n\n"
         f"{selected}\n\n"
         "Теперь укажи свой опыт работы:",
-        reply_markup=expierence_keyboard,
+        reply_markup=get_experience_keyboard(user_id),
         parse_mode="HTML"
     )
 
@@ -341,6 +341,34 @@ async def handle_subcategories_done(message: Message, state: FSMContext):
     if 'selected_cities' in data:
         selected_cities[user_id] = data['selected_cities']
 
+def get_experience_keyboard(user_id: str = None) -> ReplyKeyboardMarkup:
+    """Создает клавиатуру выбора опыта с галочками для выбранных вариантов"""
+    # Определяем базовые варианты опыта
+    experience_options = [
+        ["Нет опыта", "От 1 года до 3 лет"],
+        ["От 3 до 6 лет", "Более 6 лет"]
+    ]
+    
+    # Создаем клавиатуру с учетом выбранных вариантов
+    keyboard = []
+    for row in experience_options:
+        keyboard_row = []
+        for option in row:
+            # Проверяем, выбран ли вариант для данного пользователя
+            if user_id and user_id in user_expierence and option in user_expierence[user_id]:
+                text = f"✅ {option}"
+            else:
+                text = option
+            keyboard_row.append(KeyboardButton(text=text))
+        keyboard.append(keyboard_row)
+    
+    # Добавляем кнопки управления
+    keyboard.append([
+        KeyboardButton(text="Назад в категории"),
+        KeyboardButton(text="Готово")
+    ])
+    
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
 @router.message(Form.waiting_for_experience)
@@ -348,8 +376,8 @@ async def handle_experience_selection(message: Message, state: FSMContext):
     global user_expierence
     user_id = str(message.from_user.id)
     
-    # Инициализируем множество для пользователя, если его нет или если это строка
-    if user_id not in user_expierence or isinstance(user_expierence[user_id], str):
+    # Инициализируем множество для пользователя, если его нет
+    if user_id not in user_expierence:
         user_expierence[user_id] = set()
     
     if message.text == "Назад в категории":
@@ -363,7 +391,7 @@ async def handle_experience_selection(message: Message, state: FSMContext):
                                "Пожалуйста, выбери хотя бы один вариант или нажми «Назад в категории».")
             return
             
-        selected = "\n".join(user_expierence[user_id])
+        selected = "\n".join(f"• {exp}" for exp in user_expierence[user_id])
         await message.answer(
             "📋 <b>Отлично! Твой выбор опыта:</b>\n\n"
             f"{selected}\n\n"
@@ -374,8 +402,10 @@ async def handle_experience_selection(message: Message, state: FSMContext):
         await state.set_state(Form.waiting_for_cities)
         return
     
+    # Обрабатываем выбор опыта (удаляем галочку если есть)
+    exp = message.text.replace("✅ ", "").strip()
+    
     # Добавляем или удаляем опыт
-    exp = message.text
     if exp in user_expierence[user_id]:
         user_expierence[user_id].remove(exp)
         action = "❌ Убрано из выбора"
@@ -383,14 +413,19 @@ async def handle_experience_selection(message: Message, state: FSMContext):
         user_expierence[user_id].add(exp)
         action = "✅ Добавлено к выбору"
     
-    # Формируем текст с выбранными вариантами
-    selected = "\n".join(user_expierence.get(user_id, ["Пока ничего не выбрано"]))
+    # Формируем текст с выбранными вариантами (с галочками)
+    selected = "\n".join(f"✅ {exp}" for exp in user_expierence.get(user_id, []))
+    if not selected:
+        selected = "Пока ничего не выбрано"
+    
+    # Получаем обновленную клавиатуру с галочками
+    updated_keyboard = get_experience_keyboard(user_id)
     
     await message.answer(
         f"{action}: <b>{exp}</b>\n\n"
         f"<b>Твой текущий выбор:</b>\n\n{selected}\n\n"
         "Можешь продолжить выбирать или нажать <b>«Готово»</b>",
-        reply_markup=expierence_keyboard,
+        reply_markup=updated_keyboard,
         parse_mode="HTML"
     )
 
