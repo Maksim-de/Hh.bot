@@ -736,10 +736,10 @@ async def handle_general_resume(message: Message, state: FSMContext, bot):
             parse_mode="HTML",
             reply_markup=keyboard
         )
-    except:
-        logger.info(f"Ошибка у пользователя: {message.from_user.id} {message.from_user.username} при анализе резюме")
+    except Exception as e:
+        logger.info(f"Ошибка у пользователя: {message.from_user.id} {message.from_user.username} при анализе резюме {e}")
         await message.answer(
-            'Ошибка',
+            'Ошибка, пожалуйста, попробуйте еще раз, мы обязательно ознакомимся с ошибкой и постараемся ее устранить',
             parse_mode="HTML",
             reply_markup=keyboard)
    
