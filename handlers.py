@@ -1088,7 +1088,8 @@ async def load_selected_subcategories() -> dict:
             try:
                 if record['experience']:
                     # Декодируем JSON и преобразуем список в set
-                    user_expierence[record['user_id']] = set(record['experience'])
+                    # user_expierence[record['user_id']] = set(record['experience'])
+                    user_expierence[record['user_id']] = record['experience']
             except:
                 logger.info(f"[{datetime.now()}] Ошибка декодирования для user_id {record['user_id']}: {e}")
                 continue
