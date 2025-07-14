@@ -318,7 +318,6 @@ async def handle_subcategory(message: Message, state: FSMContext):
 @router.message(Form.category, lambda message: message.text == "Готово")
 async def handle_subcategories_done(message: Message, state: FSMContext):
     user_id = str(message.from_user.id)
-    logger.info(f"Пользователь {message.from_user.id} {message.from_user.username} нажал кнопку готово")
     
     if user_id not in selected_subcategories or not selected_subcategories[user_id]:
         await message.answer("⚠️ Ты не выбрал ни одной специализации.\n\n"
@@ -331,49 +330,46 @@ async def handle_subcategories_done(message: Message, state: FSMContext):
         "📋 <b>Отлично! Твой выбор:</b>\n\n"
         f"{selected}\n\n"
         "Теперь укажи свой опыт работы:",
-        reply_markup=get_experience_keyboard(user_id),
+        reply_markup=get_experience_keyboard(user_id),  # Используем новую функцию
         parse_mode="HTML"
     )
 
     await state.set_state(Form.waiting_for_experience)
-    
-    data = await state.get_data()
-    if 'selected_cities' in data:
-        selected_cities[user_id] = data['selected_cities']
+
 
 def get_experience_keyboard(user_id: str = None) -> ReplyKeyboardMarkup:
     """Создает клавиатуру выбора опыта с галочками для выбранных вариантов"""
-    # Определяем базовые варианты опыта
+    builder = ReplyKeyboardBuilder()
+    
+    # Варианты опыта
     experience_options = [
-        ["Нет опыта", "От 1 года до 3 лет"],
-        ["От 3 до 6 лет", "Более 6 лет"]
+        "Нет опыта", 
+        "От 1 года до 3 лет",
+        "От 3 до 6 лет", 
+        "Более 6 лет"
     ]
     
-    # Создаем клавиатуру с учетом выбранных вариантов
-    keyboard = []
-    for row in experience_options:
-        keyboard_row = []
-        for option in row:
-            # Проверяем, выбран ли вариант для данного пользователя
-            if user_id and user_id in user_expierence and option in user_expierence[user_id]:
-                text = f"✅ {option}"
-            else:
-                text = option
-            keyboard_row.append(KeyboardButton(text=text))
-        keyboard.append(keyboard_row)
+    # Добавляем кнопки с учетом выбранных вариантов
+    for option in experience_options:
+        if user_id and user_id in user_expierence and option in user_expierence[user_id]:
+            text = f"✅ {option}"
+        else:
+            text = option
+        builder.add(KeyboardButton(text=text))
+    
+    builder.adjust(2)
     
     # Добавляем кнопки управления
-    keyboard.append([
+    builder.row(
         KeyboardButton(text="Назад в категории"),
         KeyboardButton(text="Готово")
-    ])
+    )
     
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+    return builder.as_markup(resize_keyboard=True)
 
 
 @router.message(Form.waiting_for_experience)
 async def handle_experience_selection(message: Message, state: FSMContext):
-    global user_expierence
     user_id = str(message.from_user.id)
     
     # Инициализируем множество для пользователя, если его нет
@@ -428,7 +424,6 @@ async def handle_experience_selection(message: Message, state: FSMContext):
         reply_markup=updated_keyboard,
         parse_mode="HTML"
     )
-
 # Общий обработчик для кнопки "Назад в категории"
 async def back_to_categories_common(message: Message, state: FSMContext):
     # Всегда переходим к выбору категорий
@@ -1155,7 +1150,7 @@ async def load_selected_subcategories() -> dict:
                     user_expierence[record['user_id']] = set(json.loads(record['experience']))
                     # user_expierence[record['user_id']] = set((record['experience']))
                     # user_expierence[record['user_id']] = record['experience']
-            except:
+            except Exception as e:
                 logger.info(f"[{datetime.now()}] Ошибка декодирования для user_id {record['user_id']}: {e}")
                 continue
         logger.info(f"[{datetime.now()}] Успешно загружено опыта {len(user_expierence)} записей из БД")    
