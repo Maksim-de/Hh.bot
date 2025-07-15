@@ -6,8 +6,6 @@ from aiogram.fsm.context import FSMContext
 from states import *
 from api_handler import *
 from aiogram.utils.markdown import hbold, hitalic, hunderline, text, code
-# from config import TOKEN_WEATHER
-from datetime import datetime
 import io
 import asyncio
 import json
@@ -143,11 +141,9 @@ category_keywords = {
 
 from aiogram import F
 from aiogram.types import Message, FSInputFile
-import logging
 
-# Настройка логов
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+
+
 
 router = Router()
 
@@ -198,7 +194,16 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.set_state(Form.user_id)
     await state.update_data(user_id=user_id) 
     logger.info(f"Пользователь {message.from_user.id} {message.from_user.username} нажал кнопку start")
-    await check_and_add_user(user_id, message.from_user.first_name)
+
+    username = (
+        message.from_user.username 
+        if message.from_user.username 
+        else f"id{message.from_user.id}"
+    )
+
+    await check_and_add_user(user_id, message.from_user.first_name, username)
+    
+
 
 
     
@@ -615,6 +620,7 @@ def escape_html(text):
 def clean_and_format(text: str) -> str:
 
     text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)  
+    text = re.sub(r'__(.*?)__', r'<u>\1</u>', text)
     text = text.replace("<think>", "").replace("</think>", "")
     return text
 
@@ -635,58 +641,148 @@ async def general_resume_review(message: Message, state: FSMContext):
     await state.set_state(ResumeAnalysisStates.waiting_for_resume_total)
     logger.info(f"Пользователь {message.from_user.id} начал общую оценку резюме")
 
+
+
+# @router.message(F.document, ResumeAnalysisStates.waiting_for_resume_total)
+# async def handle_general_resume(message: Message, state: FSMContext):
+#     try:
+#         if not message.document.file_name.lower().endswith('.pdf'):
+#             await message.answer("❌ Файл должен быть в формате PDF!")
+#             return
+
+#         logger.info(f"Получен документ: {message.document.file_name}")
+#         await message.answer("🔍 Анализирую резюме... Обычно это занимает 3-5 минут")
+
+#         # Скачиваем и обрабатываем файл
+#         file = await message.bot.download(message.document.file_id)
+#         pdf_bytes = file.read()
+        
+#         # Извлекаем текст и сохраняем в state
+#         extracted_text = extract_text_from_pdf(pdf_bytes)
+#         if not extracted_text:
+#             await message.answer("❌ Не удалось извлечь текст. Убедитесь, что файл не сканированный.")
+#             await state.clear()
+#             return
+            
+#         await state.update_data(resume_text=extracted_text)
+#         await state.set_state(ResumeAnalysisStates.resume_text_stored)
+
+#         # Вызываем hot_resume для общей оценки
+#         analysis_result = await generating_answer_without_vacancy(extracted_text)  
+#         formatted_result = clean_and_format(analysis_result)
+
+#         logger.info(f"Пользователь {message.from_user.id} получил анализ {formatted_result}")
+        
+#         await message.answer(formatted_result, parse_mode="HTML")
+#         await message.answer(
+#             "✅ Анализ завершен. Буду рад если вы поделитесь фидбеком о моей работе через кнопку 'Помощь'",
+#             reply_markup=ReplyKeyboardMarkup(
+#                 keyboard=[
+#                     [KeyboardButton(text="В главное меню")]
+#                 ],
+#                 resize_keyboard=True
+#             )
+#         )
+
+#     except Exception as e:
+#         logger.error(f"Ошибка при обработке резюме: {e}", exc_info=True)
+#         await message.answer("⚠️ Произошла ошибка анализа. Попробуйте другой файл.",
+#             reply_markup=ReplyKeyboardMarkup(
+#                 keyboard=[
+#                     [KeyboardButton(text="В главное меню")]
+#                 ],
+#                 resize_keyboard=True
+#             )
+#         )
+#         await state.clear()
+
+
 @router.message(F.document, ResumeAnalysisStates.waiting_for_resume_total)
 async def handle_general_resume(message: Message, state: FSMContext):
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="В главное меню")]],
+        resize_keyboard=True
+    )
+    
+    async def perform_analysis_with_retries():
+        MAX_RETRIES = 3
+        RETRY_DELAY = 2
+        
+        for attempt in range(MAX_RETRIES):
+            try:
+                # Проверка формата файла
+                if not message.document.file_name.lower().endswith('.pdf'):
+                    await message.answer("❌ Файл должен быть в формате PDF!", reply_markup=keyboard)
+                    return None
+
+                logger.info(f"Попытка {attempt + 1}/{MAX_RETRIES} для пользователя {message.from_user.id}")
+
+                await message.answer(f"🔍 Анализирую резюме... Попытка {attempt + 1} из {MAX_RETRIES}")
+
+                # Скачивание и обработка файла
+                file = await message.bot.download(message.document.file_id)
+                pdf_bytes = file.read()
+                
+                # Извлечение текста
+                extracted_text = extract_text_from_pdf(pdf_bytes)
+                if not extracted_text:
+                    await message.answer("❌ Не удалось извлечь текст. Убедитесь, что файл не сканированный.", reply_markup=keyboard)
+                    return None
+                    
+                await state.update_data(resume_text=extracted_text)
+                await state.set_state(ResumeAnalysisStates.resume_text_stored)
+
+                # Генерация анализа
+                analysis_result = await generating_answer_without_vacancy(extracted_text)
+                formatted_result = clean_and_format(analysis_result)
+
+                # Попытка отправки результата
+                try:
+                    await message.answer(formatted_result, parse_mode="HTML")
+                    await message.answer(
+                        "✅ Анализ завершен. Буду рад если вы поделитесь фидбеком о моей работе через кнопку 'Помощь'",
+                        reply_markup=keyboard
+                    )
+                    return True
+                except Exception as send_error:
+                    logger.error(f"Ошибка отправки (попытка {attempt + 1}): {send_error}")
+                    if attempt < MAX_RETRIES - 1:
+                        await asyncio.sleep(RETRY_DELAY)
+                    continue
+
+            except Exception as e:
+                logger.error(f"Ошибка анализа (попытка {attempt + 1}): {e}")
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(RETRY_DELAY)
+                continue
+        
+        return False
+
     try:
-        if not message.document.file_name.lower().endswith('.pdf'):
-            await message.answer("❌ Файл должен быть в формате PDF!")
-            return
-
-        logger.info(f"Получен документ: {message.document.file_name}")
-        await message.answer("🔍 Анализирую резюме... Обычно это занимает 3-5 минут")
-
-        # Скачиваем и обрабатываем файл
-        file = await message.bot.download(message.document.file_id)
-        pdf_bytes = file.read()
+        success = await perform_analysis_with_retries()
         
-        # Извлекаем текст и сохраняем в state
-        extracted_text = extract_text_from_pdf(pdf_bytes)
-        if not extracted_text:
-            await message.answer("❌ Не удалось извлечь текст. Убедитесь, что файл не сканированный.")
-            await state.clear()
-            return
+        if not success:
+            logger.error(f"Все попытки анализа провалились для пользователя {message.from_user.id}")
+            await message.answer(
+                "😔 Не удалось проанализировать резюме после нескольких попыток. Пожалуйста:\n"
+                '1. Проверьте, что файл в формате PDF\n'
+                '2. Убедитесь, что файл не повреждён\n'
+                '3. Попробуйте сократить объём текста в резюме\n'
+                '4. Повторите попытку позже',
+                reply_markup=keyboard
+            )
             
-        await state.update_data(resume_text=extracted_text)
-        await state.set_state(ResumeAnalysisStates.resume_text_stored)
-
-        # Вызываем hot_resume для общей оценки
-        analysis_result = await generating_answer_without_vacancy(extracted_text)  
-        formatted_result = clean_and_format(analysis_result)
-
-        logger.info(f"Пользователь {message.from_user.id} получил анализ {formatted_result}")
-        
-        await message.answer(formatted_result, parse_mode="HTML")
-        await message.answer(
-            "✅ Анализ завершен. Буду рад если вы поделитесь фидбеком о моей работе через кнопку 'Помощь'",
-            reply_markup=ReplyKeyboardMarkup(
-                keyboard=[
-                    [KeyboardButton(text="В главное меню")]
-                ],
-                resize_keyboard=True
-            )
-        )
-
     except Exception as e:
-        logger.error(f"Ошибка при обработке резюме: {e}", exc_info=True)
-        await message.answer("⚠️ Произошла ошибка анализа. Попробуйте другой файл.",
-            reply_markup=ReplyKeyboardMarkup(
-                keyboard=[
-                    [KeyboardButton(text="В главное меню")]
-                ],
-                resize_keyboard=True
-            )
+        logger.critical(f"Критическая ошибка обработчика: {e}")
+        await message.answer(
+            "⚠️ Произошла непредвиденная ошибка. Мы уже работаем над её устранением.",
+            reply_markup=keyboard
         )
+    finally:
         await state.clear()
+
+
+
 
 @router.message(F.text, lambda message: message.text == "🔥 Прожарка резюме на основе вакансий")
 async def start_resume_roast_from_existing(message: Message, state: FSMContext):
@@ -764,44 +860,81 @@ async def handle_roast_subcategory_selection(message: Message, state: FSMContext
     await state.set_state(ResumeAnalysisStates.waiting_for_resume_fair)
     logger.info(f"Пользователь {message.from_user.id} {message.from_user.username} начал прожарку резюме")
 
+
 @router.message(F.document, ResumeAnalysisStates.waiting_for_resume_fair)
 async def handle_general_resume(message: Message, state: FSMContext, bot):
     keyboard = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="В главное меню")]],
         resize_keyboard=True
     )
+    
+    async def try_analyze(attempts=3):
+        for attempt in range(attempts):
+            try:
+                if not message.document.file_name.lower().endswith('.pdf'):
+                    await message.answer("❌ Файл должен быть в формате PDF!",
+                        reply_markup=keyboard)
+                    return None
+
+                logger.info(f"Получен документ: {message.document.file_name} (попытка {attempt + 1})")
+                await message.answer(f"🔍 Анализирую резюме... Попытка {attempt + 1} из {attempts}")
+
+                # Скачиваем и обрабатываем файл
+                file = await message.bot.download(message.document.file_id)
+                pdf_bytes = file.read()
+                
+                # Извлекаем текст
+                extracted_text = extract_text_from_pdf(pdf_bytes)
+
+                # Пробуем получить анализ
+                analysis_result = await hot_resume(extracted_text, hair_user[message.from_user.id])
+                formatted_result = clean_and_format(analysis_result)
+                
+                # Пробуем отправить результат
+                try:
+                    await message.answer(
+                        formatted_result,
+                        parse_mode="HTML",
+                        reply_markup=keyboard
+                    )
+                    return True  # Успех и анализ и отправка
+                except Exception as send_error:
+                    logger.error(f"Ошибка отправки результата (попытка {attempt + 1}): {str(send_error)}")
+                    if attempt < attempts - 1:
+                        await asyncio.sleep(2)
+                    continue
+
+            except Exception as e:
+                logger.error(f"Ошибка анализа (попытка {attempt + 1}): {str(e)}")
+                if attempt < attempts - 1:
+                    await asyncio.sleep(2)
+                continue
+        
+        return False  # Все попытки провалились
+
     try:
-        if not message.document.file_name.lower().endswith('.pdf'):
-            await message.answer("❌ Файл должен быть в формате PDF!",
-                reply_markup=keyboard)
-            return
-
-        logger.info(f"Получен документ: {message.document.file_name}")
-        await message.answer("🔍 Анализирую резюме... Мне нужно 3-5 минут")
-
-        # Скачиваем и обрабатываем файл
-        file = await message.bot.download(message.document.file_id)
-        pdf_bytes = file.read()
+        success = await try_analyze()
         
-        # Извлекаем текст и сохраняем в state
-        extracted_text = extract_text_from_pdf(pdf_bytes)
-
-        analysis_result = await hot_resume(extracted_text, hair_user[message.from_user.id])
-        # analysis_result = asyncio.create_task(hot_resume(extracted_text, hair_user[message.from_user.id]))
-        formatted_result = clean_and_format(analysis_result)
-        
+        if not success:
+            logger.error(f"Все попытки провалились для пользователя {message.from_user.id}")
+            await message.answer(
+                '😔 Не удалось проанализировать резюме после нескольких попыток. Пожалуйста:\n'
+                '1. Проверьте, что файл в формате PDF\n'
+                '2. Убедитесь, что файл не повреждён\n'
+                '3. Попробуйте сократить объём текста в резюме\n'
+                '4. Повторите попытку позже',
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+            
+    except Exception as e:
+        logger.critical(f"Критическая ошибка обработчика: {str(e)}")
         await message.answer(
-            formatted_result,
+            '⚠️ Произошла непредвиденная ошибка. Мы уже работаем над её устранением.\n'
+            'Пожалуйста, попробуйте отправить резюме ещё раз через несколько минут.',
             parse_mode="HTML",
             reply_markup=keyboard
         )
-    except Exception as e:
-        logger.info(f"Ошибка у пользователя: {message.from_user.id} {message.from_user.username} при анализе резюме {e}")
-        await message.answer(
-            'Ошибка, пожалуйста, попробуйте еще раз, мы обязательно ознакомимся с ошибкой и постараемся ее устранить',
-            parse_mode="HTML",
-            reply_markup=keyboard)
-   
     
 
 
@@ -1291,7 +1424,7 @@ async def send_vacancies_to_user(bot: Bot, user_id: int, vacancies: list):
         await asyncio.sleep(1.5)
         
         # Если пользователь в списке для задержки и это каждая 3-я вакансия
-        if i % 5 == 0:
+        if i % 3 == 0:
             logger.info(f"[{datetime.now()}] ⏳ Отправлено 5 вакансии, пауза 10 минут для пользователя {user_id}..") 
             await asyncio.sleep(600)  # Задержка только для этого пользователя
 
@@ -1464,85 +1597,3 @@ async def send_personalized_vacancies(bot: Bot):
 
 
 
-import asyncpg
-
-async def load_vacancies_for_analysis(vacancy_category):
-    """
-    Загружает вакансии и пользовательские выборки из БД,
-    возвращает кортеж (vacancies_cache, user_selections)
-    """
-    conn = None
-    try:
-        conn = await asyncpg.connect(
-            host=host,
-            port=port,
-            database=database,
-            user=user,
-            password=password
-        )
-        
-        # 1. Загрузка вакансий
-        records = await conn.fetch(
-            f"SELECT title, salary, skills, location, experience, link FROM vacans WHERE new_category like '%{vacancy_category}' and date >= CURRENT_DATE - INTERVAL '3 day'"
-        )
-        logger.info(f"[{datetime.now()}] Скачали последние вакансии для анализа в функции Прожарки резюме") 
-        return records
-        
-    except Exception as e:
-        logger.info(f"[{datetime.now()}] Ошибка загрузки данных: {e}") 
-        return {}, {}
-    finally:
-        if conn:
-            await conn.close()
-
-
-async def hot_resume(pdf_text, vacancy_category,  temp = 0.8):
-    logger.info(f"[{datetime.now()}] Зашли в функцию hot_resume") 
-    
-    vacancies = await load_vacancies_for_analysis(vacancy_category)
-    logger.info(f"[{datetime.now()}] Перешли к промту") 
-    prompt = f"""
-        Ты — HR-эксперт с 10+ лет опыта в IT-рекрутинге. 
-        Проанализируй резюме для позиции {vacancy_category} и дай рекомендации, которые увеличат шансы на отклик на 50%. 
-
-        **Жесткие правила:**
-        1. Только факты из резюме (не додумывай)
-        2. Сравнивай с вакансиями {vacancies[:25]}
-        3. Пиши как личный консультант (без шаблонов)
-        4. Макс. 2500 символов
-        5. Не используй курсив и теги <think>, используй теги <b> для выделения жирного текста.
-
-        **Структура ответа (Telegram-форматирование):**
-        🎯 <b>Главная проблема</b>: 1-2 предложения
-        📊 <b>Число подходящих вакансий</b>: "За последнюю неделю было X подходящих вашему описанию вакансий"
-        💼 <b>Соответствие роли</b>: 3 пункта (совпадение/нехватка)
-        💰 <b>Зарплатный потолок</b>: "Без доработок: X ₽ | С исправлениями: Y ₽". Если вакансий меньше 5, то пропусти этот пункт.
-        🛠 <b>ТОП-3 исправления</b> (конкретные примеры):
-        1. Заменить "фраза из резюме" → "оптимизированная версия"
-        2. Добавить навык "самый частый skill из вакансий"
-        3. Удалить "нерелевантный пункт"
-        📈 <b>Быстрый чек</b>: "После правок +% откликов"
-        🔗 <b>Ресурсы</b>: Совет что необходимо выучить
-        4. Наиболее релевантные вакансии за последнюю неделю: ссылки только из текстов вакансий, который тебе прислали.
-
-        Резюме:
-        {pdf_text}
-        """
-
-    loop = asyncio.get_event_loop()
-    completion = await loop.run_in_executor(
-        None,
-        lambda: client.chat.completions.create(
-            extra_headers={
-            "HTTP-Referer": "<YOUR_SITE_URL>",  # Optional
-            "X-Title": "<YOUR_SITE_NAME>",      # Optional
-            },
-            model="deepseek/deepseek-r1-0528:free",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temp
-        )
-    )
-    text = completion.choices[0].message.content
-    logger.info(f"[{datetime.now()}] Полученная генерация {text}") 
-
-    return text
